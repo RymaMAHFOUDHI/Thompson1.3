@@ -160,26 +160,44 @@ def nfa_to_dfa(nfa):
                 if accept in U: dfa_accepts.add(U)
             dfa_trans[(T,sym)] = U
 
-    return {'states':list(dfa_states.keys()),'start':start_set,'accepts':dfa_accepts,'transitions':dfa_trans,'symbols':symbols}
+    # renommage DFA
+    letters="ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    mapping={fs:letters[i] for i,fs in enumerate(dfa_states.keys())}
+    legend={letters[i]:"{" + ",".join(map(str,sorted(fs))) + "}" for i,fs in enumerate(dfa_states.keys())}
+    
+    dfa_named_trans={}
+    for (src,sym),dest in dfa_trans.items():
+        key=(mapping[src],mapping[dest])
+        if key in dfa_named_trans: dfa_named_trans[key].append(sym)
+        else: dfa_named_trans[key]=[sym]
+
+    start_named = mapping[start_set]
+    accepts_named = {mapping[fs] for fs in dfa_accepts}
+    return {'states':list(mapping.values()),'start':start_named,'accepts':accepts_named,'transitions':dfa_named_trans,'symbols':symbols,'legend':legend}
 
 # ---------- DFA Minimisation ----------
 def minimize_dfa(dfa):
+    # Ici dfa a déjà des noms A,B,C...
     states = list(dfa['states'])
     symbols = dfa['symbols']
-    accepts = set(dfa['accepts'])
+    accepts = dfa['accepts']
     non_accepts = set(states)-accepts
     P = [frozenset(accepts)] if accepts else []
     if non_accepts: P.append(frozenset(non_accepts))
     W = P.copy()
-    trans = {s:{sym:dfa['transitions'].get((s,sym)) for sym in symbols} for s in states}
+
+    trans = {}
+    for s in states:
+        trans[s]={sym:next((d for (src,d),syms in dfa['transitions'].items() if src==s and sym in syms),None) for sym in symbols}
 
     while W:
-        A=W.pop()
+        A = W.pop()
         for c in symbols:
             X={q for q in states if trans[q].get(c) in A}
             newP=[]
             for Y in P:
-                inter = Y & X; diff = Y - X
+                inter = Y & X
+                diff = Y - X
                 if inter and diff:
                     newP.append(frozenset(inter)); newP.append(frozenset(diff))
                     if Y in W: W.remove(Y); W.append(frozenset(inter)); W.append(frozenset(diff))
@@ -187,31 +205,32 @@ def minimize_dfa(dfa):
                 else: newP.append(Y)
             P=newP
 
+    # Renommage I, II, III...
     roman=["I","II","III","IV","V","VI","VII","VIII","IX","X"]
-    state_names = {}; legend={}
+    state_names = {}
+    legend={}
     for i,block in enumerate(P):
-        name = roman[i] if i<len(roman) else f"S{i}"
-        state_names[block]=name
-        legend[name]="{" + ",".join([str(s) for s in sorted(block)]) + "}"
+        name=roman[i] if i<len(roman) else f"S{i}"
+        state_names[frozenset(block)]=name
+        legend[name]="{" + ",".join(sorted(block)) + "}"
 
-    new_start = next(b for b in P if dfa['start'] in b)
-    new_accepts = {b for b in P if any(s in dfa['accepts'] for s in b)}
+    # transitions
     new_trans={}
-    for src in P:
+    for blk in P:
+        src = state_names[frozenset(blk)]
         for sym in symbols:
-            dest=None
-            for s in src:
-                d=dfa['transitions'].get((s,sym))
-                if d is not None:
-                    dest=next(b for b in P if d in b); break
+            dest = next((state_names[frozenset(b)] for b in P if trans[next(iter(blk))].get(sym) in b),None)
             if dest:
-                key=(state_names[src],state_names[dest])
+                key=(src,dest)
                 if key in new_trans: new_trans[key].append(sym)
                 else: new_trans[key]=[sym]
 
-    return {'states':list(state_names.values()),'start':state_names[new_start],
-            'accepts':{state_names[b] for b in new_accepts},'transitions':new_trans,
-            'symbols':symbols,'legend':legend}
+    start_blk = next(frozenset(b) for b in P if dfa['start'] in b)
+    accept_blks = [frozenset(b) for b in P if any(s in dfa['accepts'] for s in b)]
+
+    return {'states':list(state_names.values()),'start':state_names[start_blk],
+            'accepts':{state_names[b] for b in accept_blks},
+            'transitions':new_trans,'symbols':symbols,'legend':legend}
 
 # ---------- Graph builder ----------
 def build_nfa_graph(nfa,new_edges=None):
@@ -298,23 +317,18 @@ if st.session_state.steps:
     # DFA
     if show_dfa:
         dfa=nfa_to_dfa(st.session_state.final_nfa)
-        # Multi-symbol DFA transitions
-        dfa_trans_grouped={}
-        for (src,sym),dest in dfa['transitions'].items():
-            key=(src,dest)
-            if key in dfa_trans_grouped: dfa_trans_grouped[key].append(sym)
-            else: dfa_trans_grouped[key]=[sym]
         gdfa=graphviz.Digraph()
         gdfa.attr(rankdir='LR')
         gdfa.node('start',shape='point')
-        gdfa.edge('start',str(dfa['start']))
+        gdfa.edge('start',dfa['start'])
         for s in dfa['states']:
             shape='doublecircle' if s in dfa['accepts'] else 'circle'
-            gdfa.node(str(s),label=str(s),shape=shape)
-        for (src,dest),syms in dfa_trans_grouped.items():
-            gdfa.edge(str(src),str(dest),label=",".join(syms))
-        st.subheader("DFA correspondant")
+            gdfa.node(s,label=s,shape=shape)
+        for (src,dest),syms in dfa['transitions'].items():
+            gdfa.edge(src,dest,label=",".join(syms))
+        st.subheader("DFA correspondant (états abrégés)")
         st.graphviz_chart(gdfa.source)
+        st.markdown("\n".join([f"- **{k}** = `{v}`" for k,v in dfa['legend'].items()]))
 
     # DFA minimisé
     if show_min:
@@ -324,5 +338,6 @@ if st.session_state.steps:
         gmin=build_graph_minimized(min_dfa)
         st.graphviz_chart(gmin.source)
         st.markdown("\n".join([f"- **{k}** = `{v}`" for k,v in min_dfa['legend'].items()]))
+
 else:
     st.info("Entrez une expression régulière et cliquez sur *Construire l'automate*.")
