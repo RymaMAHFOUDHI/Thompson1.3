@@ -1,1 +1,3 @@
-streamlit>=1.10\ngraphviz\n
+streamlit>=1.10\ngraphviz\n 
+streamlit
+graphviz
