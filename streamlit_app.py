@@ -269,7 +269,7 @@ def build_graph_multisym(nfa_or_dfa, start_key='start', accept_key=None, transit
     transitions = nfa_or_dfa[transitions_key]
 
     g.node('start', shape='point', width='0.1', height='0.1', fixedsize='true')
-    start_label = mapping[start] if mapping else str(start)
+    start_label = mapping[start] if mapping and start in mapping else str(start)
     g.edge('start', start_label, color='red')
 
     all_states = set(transitions.keys())
@@ -380,4 +380,5 @@ if st.session_state.final_nfa:
     if show_min:
         min_dfa=minimize_dfa(dfa)
         st.subheader("DFA minimisé (états I, II, III...)")
-        g_min=build_graph_multisym(min_dfa
+        g_min=build_graph_multisym(min_dfa, mapping=min_dfa.get('mapping'))
+        st.graphviz_chart(g_min.source
