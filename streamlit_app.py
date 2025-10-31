@@ -381,4 +381,4 @@ if st.session_state.final_nfa:
         min_dfa=minimize_dfa(dfa)
         st.subheader("DFA minimisé (états I, II, III...)")
         g_min=build_graph_multisym(min_dfa, mapping=min_dfa.get('mapping'))
-        st.graphviz_chart(g_min.source
+        st.graphviz_chart(g_min.source)
