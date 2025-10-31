@@ -298,13 +298,22 @@ if st.session_state.steps:
     # DFA
     if show_dfa:
         dfa=nfa_to_dfa(st.session_state.final_nfa)
+        # Multi-symbol DFA transitions
+        dfa_trans_grouped={}
+        for (src,sym),dest in dfa['transitions'].items():
+            key=(src,dest)
+            if key in dfa_trans_grouped: dfa_trans_grouped[key].append(sym)
+            else: dfa_trans_grouped[key]=[sym]
+        gdfa=graphviz.Digraph()
+        gdfa.attr(rankdir='LR')
+        gdfa.node('start',shape='point')
+        gdfa.edge('start',str(dfa['start']))
+        for s in dfa['states']:
+            shape='doublecircle' if s in dfa['accepts'] else 'circle'
+            gdfa.node(str(s),label=str(s),shape=shape)
+        for (src,dest),syms in dfa_trans_grouped.items():
+            gdfa.edge(str(src),str(dest),label=",".join(syms))
         st.subheader("DFA correspondant")
-        # conversion simple pour multi-symboles
-        gdfa = graphviz.Digraph(rankdir='LR')
-        gdfa = build_graph_minimized({'states':[str(s) for s in dfa['states']],'start':str(dfa['start']),
-                                      'accepts':[str(s) for s in dfa['accepts']],
-                                      'transitions={(str(k[0]),str(v)):[k[1]] for k,v in dfa['transitions'].items()}',
-                                      'symbols':dfa['symbols']})
         st.graphviz_chart(gdfa.source)
 
     # DFA minimisé
