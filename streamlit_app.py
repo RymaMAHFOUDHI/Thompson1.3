@@ -186,8 +186,8 @@ def nfa_to_dfa(nfa):
 
     return {'states': list(dfa_states.keys()), 'start': start_set, 'accepts': dfa_accepts, 'transitions': dfa_trans, 'symbols': symbols}
 
-# ---------- Graphiques NFA / DFA multisymbole ----------
-def build_graph_multisym(nfa_or_dfa, start_key='start', accept_key='accept', transitions_key='transitions', multi_symbol=True, highlight_edges=None):
+# ---------- Graphiques multi-symbole ----------
+def build_graph_multisym(nfa_or_dfa, start_key='start', accept_key='accept', transitions_key='transitions'):
     g = graphviz.Digraph()
     g.attr(rankdir='LR', ranksep='1', nodesep='0.5')
     g.attr('node', shape='circle', fixedsize='true', width='1.2', height='1.2', fontsize='12')
@@ -201,45 +201,36 @@ def build_graph_multisym(nfa_or_dfa, start_key='start', accept_key='accept', tra
     g.edge('start', str(start), color="red")
 
     # États
-    all_states = set()
-    if start_key=='start':
-        all_states.update(transitions.keys())
-        for lst in transitions.values():
-            for _, d in lst if isinstance(lst[0], tuple) else [(None,None)]:
+    all_states = set(transitions.keys())
+    for lst in transitions.values():
+        for pair in lst:
+            if isinstance(pair, tuple) and len(pair)==2:
+                _, d = pair
                 all_states.add(d)
-    for s in all_states:
+
+    for s in sorted(all_states, key=lambda x: str(x)):
         shape = 'doublecircle' if s == accept or (isinstance(accept,set) and s in accept) else 'circle'
         g.node(str(s), label=str(s), shape=shape, width='1.2', height='1.2', fixedsize='true')
 
-    # Transitions regroupées si nécessaire
-    if multi_symbol:
-        trans_dict = defaultdict(list)
-        # NFA format : dict s -> list of (sym,d)
-        if isinstance(transitions, dict) and all(isinstance(v,list) for v in transitions.values()):
-            for s,lst in transitions.items():
-                for sym,d in lst:
-                    trans_dict[(s,d)].append(EPS if sym==EPS else str(sym))
-        # DFA format : dict (src,sym) -> dst
-        elif isinstance(transitions, dict) and all(isinstance(k,tuple) for k in transitions.keys()):
-            for (src,sym),dst in transitions.items():
-                trans_dict[(src,dst)].append(str(sym))
-        for (src,dst),syms in trans_dict.items():
-            color = "red" if highlight_edges and (src, dst) in highlight_edges else "black"
-            g.edge(str(src), str(dst), label=",".join(sorted(syms)), color=color)
-    else:
-        # trans normale
-        if isinstance(transitions, dict) and all(isinstance(v,list) for v in transitions.values()):
-            for s,lst in transitions.items():
-                for sym,d in lst:
-                    g.edge(str(s), str(d), label=EPS if sym==EPS else str(sym))
-        elif isinstance(transitions, dict) and all(isinstance(k,tuple) for k in transitions.keys()):
-            for (src,sym),dst in transitions.items():
-                g.edge(str(src), str(dst), label=str(sym))
+    # Transitions regroupées
+    trans_dict = defaultdict(list)
+    if all(isinstance(k, tuple) for k in transitions.keys()):  # DFA
+        for (src,sym),dst in transitions.items():
+            trans_dict[(src,dst)].append(str(sym))
+    else:  # NFA
+        for src,lst in transitions.items():
+            for pair in lst:
+                if len(pair)==2:
+                    sym,dst=pair
+                    trans_dict[(src,dst)].append(EPS if sym==EPS else str(sym))
+
+    for (src,dst),syms in trans_dict.items():
+        g.edge(str(src), str(dst), label=",".join(sorted(syms)))
 
     return g
 
 # ---------- Streamlit ----------
-st.set_page_config(page_title="Algorithme de Thompson (abrégé)", layout="wide")
+st.set_page_config(page_title="Algorithme de Thompson", layout="wide")
 col_logo, col_title = st.columns([1,5])
 with col_logo:
     try:
@@ -306,42 +297,3 @@ if st.session_state.final_nfa:
         st.subheader("DFA correspondant")
         g_dfa = build_graph_multisym(dfa, start_key='start', accept_key='accept', transitions_key='transitions')
         st.graphviz_chart(g_dfa.source)
-
-    if show_min:
-        # minimisation DFA (version simple)
-        from copy import deepcopy
-        def minimize_dfa(dfa):
-            states=list(dfa['states']);accepts=set(dfa['accepts']);non_accepts=set(states)-accepts
-            P=[frozenset(accepts) if accepts else None, frozenset(non_accepts) if non_accepts else None]
-            P=[p for p in P if p];W=P.copy()
-            symbols=dfa['symbols']
-            trans={s:{sym:dfa['transitions'].get((s,sym)) for sym in symbols} for s in states}
-            while W:
-                A=W.pop()
-                for c in symbols:
-                    X={q for q in states if trans[q].get(c) in A}
-                    newP=[]
-                    for Y in P:
-                        inter=Y & X; diff=Y-X
-                        if inter and diff:
-                            newP.append(frozenset(inter));newP.append(frozenset(diff))
-                            if Y in W: W.remove(Y); W.append(frozenset(inter));W.append(frozenset(diff))
-                            else: W.append(frozenset(inter) if len(inter)<=len(diff) else frozenset(diff))
-                        else: newP.append(Y)
-                    P=newP
-            new_states=P
-            new_start=next(b for b in new_states if dfa['start'] in b)
-            new_accepts={b for b in new_states if any(s in dfa['accepts'] for s in b)}
-            new_trans={}
-            for b in new_states:
-                rep=next(iter(b))
-                for sym in symbols:
-                    dst=dfa['transitions'].get((rep,sym))
-                    if dst is None: continue
-                    dst_blk=next(bl for bl in new_states if dst in bl)
-                    new_trans[(b,sym)]=dst_blk
-            return {'states':new_states,'start':new_start,'accepts':new_accepts,'transitions':new_trans,'symbols':symbols}
-        min_dfa=minimize_dfa(dfa)
-        st.subheader("DFA minimisé")
-        g_min=build_graph_multisym(min_dfa, start_key='start', accept_key='accept', transitions_key='transitions')
-        st.graphviz_chart(g_min.source)
